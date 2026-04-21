@@ -10,8 +10,6 @@ backend/dist/
 contracts/target/
 
 # Environment files
-.env
-.env.local
 .env.development.local
 .env.test.local
 .env.production.local
@@ -26,7 +24,6 @@ yarn-error.log*
 Thumbs.db
 
 # IDE
-.vscode/
 .idea/
 
 # Test coverage
@@ -36,3 +33,4 @@ coverage/
 *.swp
 *.swo
 checks.md
+config.bat
