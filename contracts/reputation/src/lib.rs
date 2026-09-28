@@ -350,7 +350,6 @@ enum DataKey {
     Reviews(Address),
     ReviewExists(Address, Address, u64),
     Badges(Address),
-    Admin, // Legacy
     DecayRate,
     // Configurable upper bound for `DecayRate`, settable by a super-admin up to
     // `MAX_DECAY_RATE_HARD_CEILING`. Falls back to `MAX_DECAY_RATE` when unset.
@@ -497,6 +496,19 @@ const MAX_REVIEWS_PER_REVIEWEE_WINDOW: u32 = 20;
 // `get_average_rating`, `get_score_badge`, and leaderboard updates), so an unbounded
 // list would make those calls progressively more expensive (issue #1177).
 const MAX_STAKE_TIERS: u32 = 10;
+
+/// Maximum number of users returned in a single leaderboard page query.
+/// Prevents unbounded iteration costs and keeps response sizes manageable.
+const LEADERBOARD_PAGE_SIZE_CAP: u32 = 50;
+
+/// Reputation score change applied when a user wins a dispute.
+const DISPUTE_OUTCOME_WON_SCORE: i64 = 50;
+
+/// Reputation score change applied when a user loses a dispute.
+const DISPUTE_OUTCOME_LOST_SCORE: i64 = -100;
+
+/// Reputation score change applied when a user is found to have filed a dispute in bad faith.
+const DISPUTE_OUTCOME_MALICIOUS_FILING_SCORE: i64 = -250;
 
 fn bump_reputation_ttl(env: &Env, user: &Address) {
     env.storage().persistent().extend_ttl(
@@ -1502,9 +1514,9 @@ impl ReputationContract {
         dispute_contract.require_auth();
 
         let score_change: i64 = match outcome {
-            DisputeOutcome::Won => 50,
-            DisputeOutcome::Lost => -100,
-            DisputeOutcome::MaliciousFiling => -250,
+            DisputeOutcome::Won => DISPUTE_OUTCOME_WON_SCORE,
+            DisputeOutcome::Lost => DISPUTE_OUTCOME_LOST_SCORE,
+            DisputeOutcome::MaliciousFiling => DISPUTE_OUTCOME_MALICIOUS_FILING_SCORE,
         };
 
         let rep_key = DataKey::Reputation(user.clone());
@@ -1565,6 +1577,15 @@ impl ReputationContract {
             .instance()
             .get(&DataKey::MinStakeWeight)
             .unwrap_or(MIN_STAKE_WEIGHT)
+    }
+
+    /// Get the current decay rate configuration (percentage per year).
+    /// Returns 0 if no decay rate has been configured.
+    pub fn get_decay_rate(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::DecayRate)
+            .unwrap_or(0)
     }
 
     /// Set the minimum stake weight threshold (admin/signer only).
@@ -2391,7 +2412,7 @@ impl ReputationContract {
             return Vec::new(&env);
         }
 
-        let actual_limit = if limit > 50 { 50 } else { limit };
+        let actual_limit = if limit > LEADERBOARD_PAGE_SIZE_CAP { LEADERBOARD_PAGE_SIZE_CAP } else { limit };
         let end = offset.saturating_add(actual_limit);
         let end = if end > total { total } else { end };
 
@@ -2406,7 +2427,7 @@ impl ReputationContract {
     /// tuples sorted by rating (highest first), up to top 50.
     /// Deprecated: use get_leaderboard_page instead.
     pub fn get_leaderboard(env: Env) -> Vec<(Address, u64)> {
-        Self::get_leaderboard_page(env, 0, 50)
+        Self::get_leaderboard_page(env, 0, LEADERBOARD_PAGE_SIZE_CAP)
     }
 
     /// Internal function to update the leaderboard after a review is submitted.
